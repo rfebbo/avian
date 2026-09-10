@@ -125,7 +125,12 @@ impl<C: ScalableCollider> Plugin for ColliderBackendPlugin<C> {
                     .entity(ctx.entity)
                     .get::<GlobalTransform>()
                     .map(|gt| gt.scale())
-                    .unwrap_or_default();
+                    // No transform yet means "no scale known", and the identity scale is ONE.
+                    // `Vec3::default()` is ZERO, which asked every collider inserted before its
+                    // transform propagated to scale itself out of existence for a frame — and for
+                    // shapes that cannot represent a zero scale, to log a failure for doing the
+                    // right thing instead.
+                    .unwrap_or(Vec3::ONE);
                 #[cfg(feature = "2d")]
                 let scale = scale.xy();
 

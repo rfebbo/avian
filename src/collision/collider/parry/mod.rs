@@ -1727,7 +1727,14 @@ fn scale_shape(
                     }
                 }
             }
-            Err(parry::query::Unsupported)
+            // A custom shape knows how to scale itself — that is what `Shape::scale_dyn` is for —
+            // and asking it is strictly better than declaring every shape the engine did not write
+            // unscalable. A shape that genuinely cannot take this scale still says so by returning
+            // `None`, and that is the only case left that is really unsupported.
+            _shape
+                .scale_dyn(scale, num_subdivisions)
+                .map(|s| SharedShape(s.into()))
+                .ok_or(parry::query::Unsupported)
         }
     }
 }
