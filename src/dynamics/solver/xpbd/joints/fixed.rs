@@ -136,6 +136,59 @@ fn solve_fixed_block(
     dt: Scalar,
 ) -> bool {
     let [body1, body2] = bodies;
+    // **Iterated within the substep**, because one linearized solve is exact only for small
+    // corrections. A heavy load on a light body turns it a long way in one substep, the second-order
+    // cross terms of that rotation land partly on its weakest axis, and on a slender body a
+    // centre of mass a nanometre off axis is then enough to seed a twist the next substep
+    // amplifies. Re-solving from the corrected state converges the nonlinear error instead.
+    //
+    // Proper XPBD across iterations: the right-hand side carries `−α̃·Σ` of what this substep has
+    // already applied, so a compliant joint converges to its compliant answer rather than
+    // stiffening toward rigid with every pass.
+    const MAX_ITERATIONS: usize = 4;
+    let (mut sum_p, mut sum_tau) = (Vector::ZERO, Vector::ZERO);
+    let mut first_residual = None;
+    for _ in 0..MAX_ITERATIONS {
+        let Some((p, tau, residual)) = solve_fixed_step(
+            joint,
+            [&mut *body1, &mut *body2],
+            inertias,
+            solver_data,
+            point_compliance,
+            angle_compliance,
+            dt,
+            sum_p,
+            sum_tau,
+        ) else {
+            return first_residual.is_some();
+        };
+        sum_p += p;
+        sum_tau += tau;
+        let first = *first_residual.get_or_insert(residual);
+        if residual <= first * 1.0e-6 {
+            break;
+        }
+    }
+    true
+}
+
+/// One linearized 6x6 solve of a fixed joint from the bodies' current state. `sum_p` / `sum_tau` are
+/// the impulses already applied this substep. Returns the impulses applied and the size of the
+/// right-hand side it solved, or `None` without touching anything if `K` is singular.
+#[cfg(feature = "3d")]
+#[allow(clippy::too_many_arguments)]
+fn solve_fixed_step(
+    joint: &FixedJoint,
+    bodies: [&mut SolverBody; 2],
+    inertias: [&SolverBodyInertia; 2],
+    solver_data: &mut FixedJointSolverData,
+    point_compliance: Scalar,
+    angle_compliance: Scalar,
+    dt: Scalar,
+    sum_p: Vector,
+    sum_tau: Vector,
+) -> Option<(Vector, Vector, Scalar)> {
+    let [body1, body2] = bodies;
     let [inertia1, inertia2] = inertias;
     let point = &solver_data.point_constraint;
     let angle = &solver_data.angle_constraint;
@@ -162,12 +215,16 @@ fn solve_fixed_block(
     };
     let (s1, s2) = (cross(r1), cross(r2));
     let h2 = dt * dt;
-    let k_pp = Matrix::from_diagonal(inv_mass + Vector::splat(point_compliance / h2))
-        - s1 * m1 * s1
-        - s2 * m2 * s2;
+    let (tilde_p, tilde_a) = (point_compliance / h2, angle_compliance / h2);
+    let k_pp =
+        Matrix::from_diagonal(inv_mass + Vector::splat(tilde_p)) - s1 * m1 * s1 - s2 * m2 * s2;
     let k_pt = -(s1 * m1 + s2 * m2);
     let k_tp = m1 * s1 + m2 * s2;
-    let k_tt = m1 + m2 + Matrix::from_diagonal(Vector::splat(angle_compliance / h2));
+    let k_tt = m1 + m2 + Matrix::from_diagonal(Vector::splat(tilde_a));
+
+    let rhs_p = separation - sum_p * tilde_p;
+    let rhs_t = theta - sum_tau * tilde_a;
+    let residual = rhs_p.length() + rhs_t.length();
 
     let mut a = [[0.0 as Scalar; 7]; 6];
     for i in 0..3 {
@@ -177,12 +234,12 @@ fn solve_fixed_block(
             a[i + 3][j] = k_tp.col(j)[i];
             a[i + 3][j + 3] = k_tt.col(j)[i];
         }
-        a[i][6] = separation[i];
-        a[i + 3][6] = theta[i];
+        a[i][6] = rhs_p[i];
+        a[i + 3][6] = rhs_t[i];
     }
     let scale = (0..6).map(|i| a[i][i].abs()).fold(0.0, Scalar::max);
     if !(scale > 0.0) || !scale.is_finite() {
-        return false;
+        return None;
     }
 
     // Gaussian elimination with partial pivoting. Six unknowns; nothing smarter is worth it.
@@ -196,7 +253,7 @@ fn solve_fixed_block(
             })
             .unwrap_or(col);
         if !(a[pivot][col].abs() > scale * 1.0e-7) {
-            return false;
+            return None;
         }
         a.swap(col, pivot);
         for row in (col + 1)..6 {
@@ -214,7 +271,7 @@ fn solve_fixed_block(
         x[row] = (a[row][6] - tail) / a[row][row];
     }
     if x.iter().any(|v| !v.is_finite()) {
-        return false;
+        return None;
     }
 
     let p = Vector::new(x[0], x[1], x[2]);
@@ -228,7 +285,7 @@ fn solve_fixed_block(
     solver_data.point_constraint.total_lagrange += p;
     // The angle solve reports `Δλ·n`, which is minus the impulse it applied.
     solver_data.angle_constraint.total_lagrange -= tau;
-    true
+    Some((p, tau, residual))
 }
 
 impl PositionConstraint for FixedJoint {}
