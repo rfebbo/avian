@@ -79,6 +79,34 @@ impl PointConstraintShared {
             return;
         }
 
+        // **All three directions at once, as one 3x3 system.** The scalar path below projects along
+        // the separation with one generalized inverse mass, but how easily an anchor moves depends
+        // on the direction it is pushed: `m⁻¹ + [r]×ᵀ·I⁻¹·[r]×` is a matrix, and for an anchor offset
+        // along a slender body's length it is wildly unequal between axes. Solving along the error
+        // alone then over-corrects the light directions and starves the heavy ones, and the
+        // overshoot is the next substep's error — the same failure the fixed angle constraint had.
+        //
+        // `p = (K₁ + K₂ + α̃·I)⁻¹ · separation` drives the linearized separation to exactly what the
+        // compliance allows along every axis. Falls back to the scalar path if `K` is singular.
+        #[cfg(feature = "3d")]
+        {
+            let tilde_compliance = compliance / dt.powi(2);
+            let effective = SymmetricTensor::from_diagonal(inv_mass1 + inv_mass2)
+                + inv_angular_inertia1.skew(world_r1)
+                + inv_angular_inertia2.skew(world_r2)
+                + SymmetricTensor::from_diagonal(Vector::splat(tilde_compliance));
+            let scale = effective.diagonal().max_element();
+            let determinant = effective.determinant();
+            if scale > 0.0 && determinant.is_finite() && determinant > scale.powi(3) * 1.0e-9 {
+                let impulse = effective.inverse() * separation;
+                self.total_lagrange += impulse;
+                self.apply_positional_impulse(
+                    body1, body2, inertia1, inertia2, impulse, world_r1, world_r2,
+                );
+                return;
+            }
+        }
+
         let magnitude = magnitude_squared.sqrt();
         let dir = -separation / magnitude;
 
