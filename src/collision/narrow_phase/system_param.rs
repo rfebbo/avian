@@ -358,34 +358,6 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                             islands_to_wake.push(island.id);
                         }
                     }
-                } else if !contact_pair.generates_constraints()
-                    && !contact_edge.constraint_handles.is_empty()
-                {
-                    // **It stopped generating constraints while still touching** (a body disabled or gone, a
-                    // collider made a sensor): its manifolds leave the constraint graph and its island, as
-                    // when it stops touching. Left in, they were pushed again when it started generating
-                    // again, and it had more handles than manifolds.
-                    contact_pair.manifold_count_change = 0;
-                    let has_island = contact_edge.island.is_some();
-                    let handles = contact_edge.constraint_handles.len();
-                    if let (Some(body1), Some(body2)) = (contact_pair.body1, contact_pair.body2) {
-                        for _ in 0..handles {
-                            self.constraint_graph.pop_manifold(
-                                &mut self.contact_graph.edges,
-                                contact_id,
-                                body1,
-                                body2,
-                            );
-                        }
-                        if has_island && let Some(islands) = &mut self.islands {
-                            islands.remove_contact(
-                                contact_id,
-                                &mut self.body_islands,
-                                &mut self.contact_graph.edges,
-                                &self.joint_graph,
-                            );
-                        }
-                    }
                 } else if contact_pair.is_touching() && contact_pair.generates_constraints() {
                     // Still touching, and its manifold count may have changed: bring the constraint graph's
                     // handles to the manifolds it has now — counted, not taken from the change, so a pair
@@ -613,11 +585,6 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                     || body2_bundle.is_none()
                     || collider1.is_sensor
                     || collider2.is_sensor;
-
-                if is_disabled && contacts.generates_constraints() {
-                    // It stops generating constraints: its manifolds leave the constraint graph.
-                    status_change_bits.set(contact_id);
-                }
 
                 if !is_disabled && !contacts.generates_constraints() {
                     // This can happen when a sensor is removed, or when a collider is attached to a body.
