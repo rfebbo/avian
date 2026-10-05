@@ -518,7 +518,8 @@ impl Command for WakeIslands {
                                             contact_pair.contact_id
                                         )
                                     });
-                                    for _ in contact_pair.manifolds.iter() {
+                                    // Only the handles it does not hold already.
+                                    for _ in contact_edge.constraint_handles.len()..contact_pair.manifolds.len() {
                                         constraint_graph.push_manifold(contact_edge, contact_pair);
                                     }
                                 });

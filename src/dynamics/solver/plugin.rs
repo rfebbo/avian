@@ -395,7 +395,11 @@ fn prepare_contact_constraints(
                 })
                 .1;
             let manifold_index = handle.manifold_index;
-            let manifold = &contact_pair.manifolds[manifold_index];
+            // A handle the narrow phase has not yet brought back into step with the pair's manifolds is
+            // skipped for a step rather than taken down the whole simulation.
+            let Some(manifold) = contact_pair.manifolds.get(manifold_index) else {
+                continue;
+            };
 
             if !contact_pair.generates_constraints() {
                 continue;
