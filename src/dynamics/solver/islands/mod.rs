@@ -601,28 +601,22 @@ impl PhysicsIslands {
         // Remove the island from the contact edge.
         let contact_island = contact.island.take().unwrap();
 
-        // Remove the contact from the island.
-        if let Some(prev_contact_id) = contact_island.prev {
-            let prev_contact = contact_graph
+        // Remove the contact from the island. A neighbour that is gone or in no island is a link left by a contact
+        // removed while still linked (the narrow phase and the joint graph now unlink first); it is stepped over
+        // rather than taking the simulation down ("Next contact has no island", a server on Jelly, 2026-10-05).
+        if let Some(prev_contact_id) = contact_island.prev
+            && let Some(prev_contact_island) = contact_graph
                 .edge_weight_mut(prev_contact_id.into())
-                .unwrap();
-            let prev_contact_island = prev_contact
-                .island
-                .as_mut()
-                .expect("Previous contact has no island");
-            debug_assert!(prev_contact_island.next == Some(contact_id));
+                .and_then(|c| c.island.as_mut())
+        {
             prev_contact_island.next = contact_island.next;
         }
 
-        if let Some(next_contact_id) = contact_island.next {
-            let next_contact = contact_graph
+        if let Some(next_contact_id) = contact_island.next
+            && let Some(next_contact_island) = contact_graph
                 .edge_weight_mut(next_contact_id.into())
-                .unwrap();
-            let next_contact_island = next_contact
-                .island
-                .as_mut()
-                .expect("Next contact has no island");
-            debug_assert!(next_contact_island.prev == Some(contact_id));
+                .and_then(|c| c.island.as_mut())
+        {
             next_contact_island.prev = contact_island.prev;
         }
 
@@ -643,8 +637,7 @@ impl PhysicsIslands {
             island.tail_contact = contact_island.prev;
         }
 
-        debug_assert!(island.contact_count > 0);
-        island.contact_count -= 1;
+        island.contact_count = island.contact_count.saturating_sub(1);
         island.constraints_removed += 1;
 
         #[cfg(feature = "validate")]
