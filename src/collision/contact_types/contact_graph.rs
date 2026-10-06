@@ -635,6 +635,25 @@ impl ContactGraph {
         Some(edge)
     }
 
+    /// **Every island link that leads nowhere**: a contact whose island list names a neighbour that is gone or
+    /// is in no island, or names a different island. Empty when the islands' contact lists are sound. For tests:
+    /// it walks every edge.
+    pub fn island_links_broken(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for edge in self.edges.all_edge_weights() {
+            let Some(node) = &edge.island else { continue };
+            for (which, other) in [("prev", node.prev), ("next", node.next)] {
+                let Some(other) = other else { continue };
+                match self.edges.edge_weight(other.into()).and_then(|e| e.island.as_ref()) {
+                    None => out.push(format!("{:?}'s {which} {:?} has no island", edge.id, other)),
+                    Some(o) if o.island_id != node.island_id => out.push(format!("{:?}'s {which} {:?} is in another island", edge.id, other)),
+                    _ => {}
+                }
+            }
+        }
+        out
+    }
+
     /// Removes the collider of the given entity from the contact graph, calling the given callback
     /// for each [`ContactEdge`] right before it is removed.
     ///

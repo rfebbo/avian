@@ -250,6 +250,8 @@ fn on_disable_joint_collision(
     joint_graph: Res<JointGraph>,
     mut contact_graph: ResMut<ContactGraph>,
     mut constraint_graph: ResMut<ConstraintGraph>,
+    mut islands: Option<ResMut<PhysicsIslands>>,
+    mut body_islands: Query<&mut BodyIslandNode, Or<(With<Disabled>, Without<Disabled>)>>,
 ) {
     let entity = trigger.entity;
 
@@ -268,14 +270,16 @@ fn on_disable_joint_collision(
         (colliders2, body1)
     };
 
-    let contacts_to_remove: Vec<(ContactId, usize)> = colliders
+    let contacts_to_remove: Vec<(ContactId, usize, bool, PairKey)> = colliders
         .iter()
         .flat_map(|collider| {
             contact_graph
                 .contact_edges_with(collider)
                 .filter_map(|edge| {
                     if edge.body1 == Some(other_body) || edge.body2 == Some(other_body) {
-                        Some((edge.id, edge.constraint_handles.len()))
+                        // The pair set is keyed by the *colliders* (as the broad phase adds it), not the bodies.
+                        let key = PairKey::new(edge.collider1.index_u32(), edge.collider2.index_u32());
+                        Some((edge.id, edge.constraint_handles.len(), edge.island.is_some(), key))
                     } else {
                         None
                     }
@@ -283,14 +287,19 @@ fn on_disable_joint_collision(
         })
         .collect();
 
-    for (contact_id, num_constraints) in contacts_to_remove {
+    for (contact_id, num_constraints, has_island, pair_key) in contacts_to_remove {
         // Remove the contact from the constraint graph.
         for _ in 0..num_constraints {
             constraint_graph.pop_manifold(&mut contact_graph.edges, contact_id, body1, body2);
         }
 
+        // Unlink it from its island before its edge goes: left linked, the island's list led to the slot the
+        // graph reuses for the next contact, which has no island ("Next contact has no island").
+        if has_island && let Some(islands) = &mut islands {
+            islands.remove_contact(contact_id, &mut body_islands, &mut contact_graph.edges, &joint_graph);
+        }
+
         // Remove the contact from the contact graph.
-        let pair_key = PairKey::new(body1.index_u32(), body2.index_u32());
         contact_graph.remove_edge_by_id(&pair_key, contact_id);
     }
 }

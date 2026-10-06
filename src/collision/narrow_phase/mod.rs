@@ -416,8 +416,15 @@ fn remove_collider(
         // Get the contact edge.
         let contact_edge = contact_graph.edge_weight(contact_id.into()).unwrap();
 
-        // If the contact pair was not touching, we don't need to do anything.
+        // If the contact pair was not touching, it has no events or constraints to undo — but if it is still
+        // in an island (a pair can be), it is unlinked from it before its edge goes, or the island's list
+        // leads to a slot the graph reuses for a contact with no island.
         if !contact_edge.flags.contains(ContactEdgeFlags::TOUCHING) {
+            if contact_edge.island.is_some()
+                && let Some(ref mut islands) = islands
+            {
+                islands.remove_contact(contact_id, body_islands, contact_graph, joint_graph);
+            }
             return;
         }
 

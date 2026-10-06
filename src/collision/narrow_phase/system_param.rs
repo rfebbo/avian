@@ -181,11 +181,10 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                         contact_pair.collider2.index_u32(),
                     );
 
+                    let has_island = contact_edge.island.is_some();
                     if contact_pair.generates_constraints()
                         && let (Some(body1), Some(body2)) = (contact_pair.body1, contact_pair.body2)
                     {
-                        let has_island = contact_edge.island.is_some();
-
                         // Remove the contact pair from the constraint graph.
                         for _ in 0..contact_edge.constraint_handles.len() {
                             self.constraint_graph.pop_manifold(
@@ -195,16 +194,20 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                                 body2,
                             );
                         }
+                    }
 
-                        // Unlink the contact pair from its island.
-                        if has_island && let Some(islands) = &mut self.islands {
-                            islands.remove_contact(
-                                contact_id,
-                                &mut self.body_islands,
-                                &mut self.contact_graph.edges,
-                                &self.joint_graph,
-                            );
-                        }
+                    // Unlink the contact pair from its island **whenever it is in one**, before its edge goes.
+                    // Only when it still generated constraints and had both bodies, before: a pair that stopped
+                    // (a body lost its `RigidBody`, a collider made a sensor) had its edge removed still linked,
+                    // the graph reused the slot for a new contact with no island, and the island's list then
+                    // led to it: "Next contact has no island" (a single-player server on Jelly, 2026-10-05).
+                    if has_island && let Some(islands) = &mut self.islands {
+                        islands.remove_contact(
+                            contact_id,
+                            &mut self.body_islands,
+                            &mut self.contact_graph.edges,
+                            &self.joint_graph,
+                        );
                     }
 
                     // Remove the contact edge from the contact graph.
@@ -246,8 +249,10 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                                 .push_manifold(contact_edge, contact_pair);
                         }
 
-                        // Link the contact pair to an island.
-                        if let Some(islands) = &mut self.islands {
+                        // Link the contact pair to an island, unless it is in one still.
+                        if contact_edge.island.is_none()
+                            && let Some(islands) = &mut self.islands
+                        {
                             let island = islands.add_contact(
                                 contact_id,
                                 &mut self.body_islands,
@@ -295,6 +300,7 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                         .set(ContactPairFlags::STOPPED_TOUCHING, false);
 
                     // Remove the contact pair from the constraint graph.
+                    let has_island = contact_edge.island.is_some();
                     if contact_pair.generates_constraints()
                         && !contact_edge.constraint_handles.is_empty()
                         && let (Some(body1), Some(body2)) = (contact_pair.body1, contact_pair.body2)
@@ -307,9 +313,10 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                                 body2,
                             );
                         }
-
-                        // Unlink the contact pair from its island.
-                        if let Some(islands) = &mut self.islands {
+                    }
+                    // Unlink it from its island whenever it is in one (as above, when it is removed).
+                    {
+                        if has_island && let Some(islands) = &mut self.islands {
                             let island = islands.remove_contact(
                                 contact_id,
                                 &mut self.body_islands,
@@ -342,8 +349,11 @@ impl<C: AnyCollider> NarrowPhase<'_, '_, C> {
                             .push_manifold(contact_edge, contact_pair);
                     }
 
-                    // Link the contact pair to an island.
-                    if let Some(islands) = &mut self.islands {
+                    // Link the contact pair to an island, unless it is in one still (it kept its link when it
+                    // stopped generating constraints; linked twice, the island's list loops on itself).
+                    if contact_edge.island.is_none()
+                        && let Some(islands) = &mut self.islands
+                    {
                         let island = islands.add_contact(
                             contact_id,
                             &mut self.body_islands,
