@@ -44,12 +44,12 @@ impl Plugin for XpbdSolverPlugin {
         app.add_systems(
             PhysicsSchedule,
             (
-                prepare_xpbd_joint::<FixedJoint>,
-                prepare_xpbd_joint::<RevoluteJoint>,
+                prepare_xpbd_joint::<FixedJoint>.run_if(any_with_component::<FixedJoint>),
+                prepare_xpbd_joint::<RevoluteJoint>.run_if(any_with_component::<RevoluteJoint>),
                 #[cfg(feature = "3d")]
-                prepare_xpbd_joint::<SphericalJoint>,
-                prepare_xpbd_joint::<PrismaticJoint>,
-                prepare_xpbd_joint::<DistanceJoint>,
+                prepare_xpbd_joint::<SphericalJoint>.run_if(any_with_component::<SphericalJoint>),
+                prepare_xpbd_joint::<PrismaticJoint>.run_if(any_with_component::<PrismaticJoint>),
+                prepare_xpbd_joint::<DistanceJoint>.run_if(any_with_component::<DistanceJoint>),
             )
                 .chain()
                 .in_set(SolverSystems::PrepareJoints),
@@ -62,8 +62,8 @@ impl Plugin for XpbdSolverPlugin {
         app.add_systems(
             SubstepSchedule,
             (
-                warm_start_xpbd_motors::<RevoluteJoint>,
-                warm_start_xpbd_motors::<PrismaticJoint>,
+                warm_start_xpbd_motors::<RevoluteJoint>.run_if(any_with_component::<RevoluteJoint>),
+                warm_start_xpbd_motors::<PrismaticJoint>.run_if(any_with_component::<PrismaticJoint>),
             )
                 .chain()
                 .ambiguous_with_all()
@@ -74,7 +74,7 @@ impl Plugin for XpbdSolverPlugin {
         app.add_systems(
             SubstepSchedule,
             (
-                |mut query: Query<
+                (|mut query: Query<
                     (
                         &SolverBody,
                         &mut PreSolveDeltaPosition,
@@ -89,13 +89,14 @@ impl Plugin for XpbdSolverPlugin {
                         pre_solve_delta_position.0 = body.delta_position;
                         pre_solve_delta_rotation.0 = body.delta_rotation;
                     }
-                },
-                solve_xpbd_joint::<FixedJoint>,
-                solve_xpbd_joint::<RevoluteJoint>,
+                })
+                .run_if(any_joint),
+                solve_xpbd_joint::<FixedJoint>.run_if(any_with_component::<FixedJoint>),
+                solve_xpbd_joint::<RevoluteJoint>.run_if(any_with_component::<RevoluteJoint>),
                 #[cfg(feature = "3d")]
-                solve_xpbd_joint::<SphericalJoint>,
-                solve_xpbd_joint::<PrismaticJoint>,
-                solve_xpbd_joint::<DistanceJoint>,
+                solve_xpbd_joint::<SphericalJoint>.run_if(any_with_component::<SphericalJoint>),
+                solve_xpbd_joint::<PrismaticJoint>.run_if(any_with_component::<PrismaticJoint>),
+                solve_xpbd_joint::<DistanceJoint>.run_if(any_with_component::<DistanceJoint>),
             )
                 .chain()
                 .in_set(XpbdSolverSystems::SolveConstraints),
@@ -106,6 +107,7 @@ impl Plugin for XpbdSolverPlugin {
             SubstepSchedule,
             (project_linear_velocity, project_angular_velocity)
                 .chain()
+                .run_if(any_joint)
                 .in_set(XpbdSolverSystems::VelocityProjection),
         );
 
@@ -113,17 +115,31 @@ impl Plugin for XpbdSolverPlugin {
         app.add_systems(
             PhysicsSchedule,
             (
-                writeback_joint_forces::<FixedJoint>,
-                writeback_joint_forces::<RevoluteJoint>,
+                writeback_joint_forces::<FixedJoint>.run_if(any_with_component::<FixedJoint>),
+                writeback_joint_forces::<RevoluteJoint>.run_if(any_with_component::<RevoluteJoint>),
                 #[cfg(feature = "3d")]
-                writeback_joint_forces::<SphericalJoint>,
-                writeback_joint_forces::<PrismaticJoint>,
-                writeback_joint_forces::<DistanceJoint>,
+                writeback_joint_forces::<SphericalJoint>.run_if(any_with_component::<SphericalJoint>),
+                writeback_joint_forces::<PrismaticJoint>.run_if(any_with_component::<PrismaticJoint>),
+                writeback_joint_forces::<DistanceJoint>.run_if(any_with_component::<DistanceJoint>),
             )
                 .chain()
                 .in_set(SolverSystems::Finalize),
         );
     }
+}
+
+/// **Whether there is any XPBD joint at all** (place-99, 2026-11-16): the steps every joint type shares — storing each
+/// body's pre-solve deltas, and projecting velocities from what the joints moved — iterate every solver body every
+/// substep, and with no joint they move nothing. Each type's own systems are likewise run only while one of that type
+/// exists (`any_with_component`): a world of no prismatic or distance joints (the game's, outside its dev bench) ran
+/// four empty systems every substep and two more every step for them.
+#[cfg(feature = "3d")]
+fn any_joint(joints: Query<(), Or<(With<FixedJoint>, With<RevoluteJoint>, With<SphericalJoint>, With<PrismaticJoint>, With<DistanceJoint>)>>) -> bool {
+    !joints.is_empty()
+}
+#[cfg(feature = "2d")]
+fn any_joint(joints: Query<(), Or<(With<FixedJoint>, With<RevoluteJoint>, With<PrismaticJoint>, With<DistanceJoint>)>>) -> bool {
+    !joints.is_empty()
 }
 
 /// System sets for the XPBD constraint solver in the [`SubstepSchedule`].
