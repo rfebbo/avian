@@ -223,7 +223,7 @@ pub struct SolverConfig {
     /// Consider using a higher damping ratio if contacts seem too soft.
     /// Note that making the value too large can cause instability.
     ///
-    /// Default: `2.0` (upstream `10.0`).
+    /// Default: `5.0` (upstream `10.0`).
     pub contact_damping_ratio: Scalar,
 
     /// Scales the frequency used for contacts. A higher frequency
@@ -236,7 +236,9 @@ pub struct SolverConfig {
     /// This factor scales the resulting frequency, which can lead to unstable behavior
     /// if the factor is too large.
     ///
-    /// Default: `6.0` (upstream `1.5`)
+    /// place-99: a share of a quarter of the *substep* rate (Box2D's bound), not of the step's Nyquist rate.
+    ///
+    /// Default: `1.0` (upstream `1.5`, of the step's Nyquist rate)
     pub contact_frequency_factor: Scalar,
 
     /// The maximum speed at which overlapping bodies are pushed apart by the solver.
@@ -291,13 +293,9 @@ pub struct SolverConfig {
 impl Default for SolverConfig {
     fn default() -> Self {
         Self {
-            // place-99: stiffer, less damped contacts (upstream 10.0 / 1.5). The frequency is capped by the *step*'s
-            // Nyquist rate (64 Hz there: 32 Hz x 1.5 = 48 Hz), though contacts are solved every substep; against a light
-            // body held by a joint (a 3 mm plate welded to a post, 1.4 kg) a 12 kg block rested 14 mm into it, its
-            // bottom below the plate's, and slid off a tab it should have stood on. 6.0 is a quarter of the substep
-            // rate at 12 substeps (Box2D's bound); ratio 2.0 is its joints'. Then 1 mm.
-            contact_damping_ratio: 2.0,
-            contact_frequency_factor: 6.0,
+            // place-99: stiffer contacts — see `update_contact_softness` — and less damped (upstream 10.0).
+            contact_damping_ratio: 5.0,
+            contact_frequency_factor: 1.0,
             max_overlap_solve_speed: 4.0,
             warm_start_coefficient: 1.0,
             restitution_threshold: 1.0,
@@ -338,10 +336,13 @@ fn update_contact_softness(
         let dt = physics_time.delta_secs_f64() as Scalar;
         let h = substep_time.delta_secs_f64() as Scalar;
 
-        // The contact frequency should at most be half of the time step due to Nyquist's theorem.
-        // https://en.wikipedia.org/wiki/Nyquist%E2%80%93Shannon_sampling_theorem
-        let max_hz = 1.0 / (dt * 2.0);
-        let hz = solver_config.contact_frequency_factor * max_hz.min(0.25 / h);
+        // place-99: a share of a quarter of the substep rate, Box2D's bound for a soft contact solved every substep.
+        // Upstream caps it at the *step*'s Nyquist rate (`1 / 2dt`), though contacts are solved every substep: at 64 Hz
+        // that is 32 Hz, x 1.5 = 48 Hz, and against a light body a joint holds (a 3 mm plate welded to a post, 1.4 kg)
+        // a 12 kg block rested 14 mm into it — below the plate's underside — and slid off a tab it should have stood
+        // on. At 16 substeps this is 256 Hz: 1-3 mm.
+        let _ = dt;
+        let hz = solver_config.contact_frequency_factor * 0.25 / h;
 
         coefficients.dynamic = SoftnessParameters::new(solver_config.contact_damping_ratio, hz)
             .compute_coefficients(h);
