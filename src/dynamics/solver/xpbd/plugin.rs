@@ -50,6 +50,8 @@ impl Plugin for XpbdSolverPlugin {
                 prepare_xpbd_joint::<SphericalJoint>.run_if(any_with_component::<SphericalJoint>),
                 prepare_xpbd_joint::<PrismaticJoint>.run_if(any_with_component::<PrismaticJoint>),
                 prepare_xpbd_joint::<DistanceJoint>.run_if(any_with_component::<DistanceJoint>),
+                #[cfg(feature = "3d")]
+                super::joints::velocity_weld::prepare_velocity_welds.run_if(any_with_component::<SolveWithContacts>),
             )
                 .chain()
                 .in_set(SolverSystems::PrepareJoints),
@@ -121,6 +123,8 @@ impl Plugin for XpbdSolverPlugin {
                 writeback_joint_forces::<SphericalJoint>.run_if(any_with_component::<SphericalJoint>),
                 writeback_joint_forces::<PrismaticJoint>.run_if(any_with_component::<PrismaticJoint>),
                 writeback_joint_forces::<DistanceJoint>.run_if(any_with_component::<DistanceJoint>),
+                #[cfg(feature = "3d")]
+                super::joints::velocity_weld::write_velocity_weld_forces.run_if(any_with_component::<SolveWithContacts>),
             )
                 .chain()
                 .in_set(SolverSystems::Finalize),
@@ -158,7 +162,7 @@ pub fn prepare_xpbd_joint<
     C: Component<Mutability = Mutable> + EntityConstraint<2> + XpbdConstraint<2>,
 >(
     bodies: Query<RigidBodyQueryReadOnly, Without<RigidBodyDisabled>>,
-    mut joints: Query<(&mut C, &mut C::SolverData), (Without<RigidBody>, Without<JointDisabled>)>,
+    mut joints: Query<(&mut C, &mut C::SolverData), (Without<RigidBody>, Without<JointDisabled>, Without<SolveWithContacts>)>,
 ) where
     C::SolverData: Component<Mutability = Mutable>,
 {
@@ -178,7 +182,7 @@ pub fn solve_xpbd_joint<
     C: Component<Mutability = Mutable> + EntityConstraint<2> + XpbdConstraint<2>,
 >(
     bodies: Query<(&mut SolverBody, &SolverBodyInertia), Without<RigidBodyDisabled>>,
-    mut joints: Query<(&mut C, &mut C::SolverData), (Without<RigidBody>, Without<JointDisabled>)>,
+    mut joints: Query<(&mut C, &mut C::SolverData), (Without<RigidBody>, Without<JointDisabled>, Without<SolveWithContacts>)>,
     time: Res<Time>,
 ) where
     C::SolverData: Component<Mutability = Mutable>,
@@ -228,7 +232,7 @@ pub fn warm_start_xpbd_motors<
     C: Component<Mutability = Mutable> + EntityConstraint<2> + XpbdConstraint<2>,
 >(
     bodies: Query<(&mut SolverBody, &SolverBodyInertia), Without<RigidBodyDisabled>>,
-    mut joints: Query<(&C, &mut C::SolverData), (Without<RigidBody>, Without<JointDisabled>)>,
+    mut joints: Query<(&C, &mut C::SolverData), (Without<RigidBody>, Without<JointDisabled>, Without<SolveWithContacts>)>,
     time: Res<Time>,
     solver_config: Res<SolverConfig>,
 ) where
@@ -323,7 +327,7 @@ fn project_angular_velocity(
 }
 
 fn writeback_joint_forces<C: Component + EntityConstraint<2> + XpbdConstraint<2>>(
-    mut joints: Query<(&C::SolverData, &mut JointForces)>,
+    mut joints: Query<(&C::SolverData, &mut JointForces), Without<SolveWithContacts>>,
     time: Res<Time>,
     substep_count: Res<SubstepCount>,
 ) where

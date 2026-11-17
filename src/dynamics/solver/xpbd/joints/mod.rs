@@ -16,3 +16,8 @@ pub use prismatic::PrismaticJointSolverData;
 pub use revolute::RevoluteJointSolverData;
 #[cfg(feature = "3d")]
 pub use spherical::SphericalJointSolverData;
+
+#[cfg(feature = "3d")]
+pub(crate) mod velocity_weld;
+#[cfg(feature = "3d")]
+pub use velocity_weld::{SolveWithContacts, VelocityWeldData};

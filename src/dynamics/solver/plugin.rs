@@ -126,13 +126,27 @@ impl Plugin for SolverPlugin {
         // Warm start the impulses.
         // This applies the impulses stored from the previous substep,
         // which improves convergence.
+        // place-99: `SolveWithContacts` joints are solved in the contacts' own stages, before them (Box2D's order).
+        #[cfg(all(feature = "3d", feature = "xpbd_joints"))]
+        use crate::dynamics::solver::xpbd::joints::velocity_weld as weld;
+        #[cfg(all(feature = "3d", feature = "xpbd_joints"))]
+        let welds = any_with_component::<crate::dynamics::solver::xpbd::joints::SolveWithContacts>;
+        #[cfg(all(feature = "3d", feature = "xpbd_joints"))]
+        substeps.add_systems((weld::warm_start_velocity_welds.run_if(welds), warm_start).chain().in_set(SubstepSolverSystems::WarmStart));
+        #[cfg(not(all(feature = "3d", feature = "xpbd_joints")))]
         substeps.add_systems(warm_start.in_set(SubstepSolverSystems::WarmStart));
 
         // Solve velocities using a position bias.
+        #[cfg(all(feature = "3d", feature = "xpbd_joints"))]
+        substeps.add_systems((weld::solve_velocity_welds::<true>.run_if(welds), solve_contacts::<true>).chain().in_set(SubstepSolverSystems::SolveConstraints));
+        #[cfg(not(all(feature = "3d", feature = "xpbd_joints")))]
         substeps.add_systems(solve_contacts::<true>.in_set(SubstepSolverSystems::SolveConstraints));
 
         // Relax biased velocities and impulses.
         // This reduces overshooting caused by warm starting.
+        #[cfg(all(feature = "3d", feature = "xpbd_joints"))]
+        substeps.add_systems((weld::solve_velocity_welds::<false>.run_if(welds), solve_contacts::<false>).chain().in_set(SubstepSolverSystems::Relax));
+        #[cfg(not(all(feature = "3d", feature = "xpbd_joints")))]
         substeps.add_systems(solve_contacts::<false>.in_set(SubstepSolverSystems::Relax));
 
         // Perform constraint damping.
@@ -274,6 +288,13 @@ pub struct SolverConfig {
     /// Default: `1.0`
     pub restitution_threshold: Scalar,
 
+    /// place-99: the damping ratio of a [`SolveWithContacts`](crate::dynamics::solver::xpbd::joints::SolveWithContacts) joint's
+    /// rigid parts. Default: `2.0` (Box2D's joints).
+    pub weld_damping_ratio: Scalar,
+
+    /// place-99: their frequency, a share of a quarter of the substep rate. Default: `1.0`.
+    pub weld_frequency_factor: Scalar,
+
     /// place-99: the damping ratio of a [`StiffContacts`] body's contacts. Default: `5.0`.
     pub stiff_contact_damping_ratio: Scalar,
 
@@ -304,6 +325,8 @@ impl Default for SolverConfig {
             warm_start_coefficient: 1.0,
             restitution_threshold: 1.0,
             restitution_iterations: 1,
+            weld_damping_ratio: 2.0,
+            weld_frequency_factor: 1.0,
             stiff_contact_damping_ratio: 5.0,
             stiff_contact_frequency_factor: 1.0,
         }
