@@ -177,13 +177,15 @@ pub(crate) fn solve_velocity_welds<const USE_BIAS: bool>(
     }
 }
 
-/// After the substeps: the forces, as the last substep's impulse over the substep — on the first body, as `fixed.rs`
-/// reports them.
+/// After the substeps: the forces, as the last substep's impulse over the substep — the force on the first body, and
+/// the torque with the sign `fixed.rs` reports.
 pub(crate) fn write_velocity_weld_forces(mut joints: Query<(&VelocityWeldData, &mut JointForces), With<SolveWithContacts>>) {
     for (weld, mut forces) in &mut joints {
         if weld.h > 0.0 {
             forces.set_force(-weld.impulse / weld.h);
-            forces.set_torque(-weld.angular_impulse / weld.h);
+            // The angle solve's sign, which `fixed.rs` reports as it applies it (a plate hanging off a wall: +40 N·m about
+            // +Z from XPBD, and so here).
+            forces.set_torque(weld.angular_impulse / weld.h);
         }
     }
 }
