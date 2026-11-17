@@ -147,7 +147,9 @@ impl ContactConstraint {
             ),
         };
 
-        let softness = if relative_dominance != 0 {
+        let softness = if body1.stiff || body2.stiff {
+            softness.stiff
+        } else if relative_dominance != 0 {
             softness.non_dynamic
         } else {
             softness.dynamic

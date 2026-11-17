@@ -660,3 +660,16 @@ pub struct AngularDamping(pub Scalar);
 #[cfg_attr(feature = "serialize", reflect(Serialize, Deserialize))]
 #[reflect(Debug, Component, Default, PartialEq)]
 pub struct Dominance(pub i8);
+
+/// **Contacts solved stiffer** (place-99): every contact this dynamic body is in uses
+/// [`ContactSoftnessCoefficients::stiff`](crate::dynamics::solver::ContactSoftnessCoefficients::stiff) — a share of a
+/// quarter of the substep rate (Box2D's bound for a soft contact solved each substep) — not the dynamic contacts' rate,
+/// which is capped by the *step*'s Nyquist rate (48 Hz at 64 Hz).
+///
+/// For a light body a joint holds to something much heavier: a thin plate welded to a post. Under a heavy body the
+/// contact's impulse mostly moves the light one, the joint puts it back every substep, and the heavy one sinks until
+/// the soft contact alone holds it — a 12 kg block came to rest 14 mm into a 3 mm plate, and slid off a tab it should
+/// have stood on. Stiffer, it rests on it.
+#[derive(Component, Reflect, Debug, Clone, Copy, Default, PartialEq)]
+#[reflect(Debug, Component, Default, PartialEq)]
+pub struct StiffContacts;

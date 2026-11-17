@@ -274,6 +274,13 @@ pub struct SolverConfig {
     /// Default: `1.0`
     pub restitution_threshold: Scalar,
 
+    /// place-99: the damping ratio of a [`StiffContacts`] body's contacts. Default: `5.0`.
+    pub stiff_contact_damping_ratio: Scalar,
+
+    /// place-99: the frequency of a [`StiffContacts`] body's contacts, as a share of a quarter of the *substep* rate
+    /// (Box2D's bound). Default: `1.0`.
+    pub stiff_contact_frequency_factor: Scalar,
+
     /// The number of iterations used for applying [restitution](Restitution).
     ///
     /// A higher number of iterations can result in more accurate bounces,
@@ -297,6 +304,8 @@ impl Default for SolverConfig {
             warm_start_coefficient: 1.0,
             restitution_threshold: 1.0,
             restitution_iterations: 1,
+            stiff_contact_damping_ratio: 5.0,
+            stiff_contact_frequency_factor: 1.0,
         }
     }
 }
@@ -312,6 +321,8 @@ pub struct ContactSoftnessCoefficients {
     pub dynamic: SoftnessCoefficients,
     /// The [`SoftnessCoefficients`] used for contacts against static or kinematic bodies.
     pub non_dynamic: SoftnessCoefficients,
+    /// The [`SoftnessCoefficients`] used for every contact of a body with [`StiffContacts`] (place-99).
+    pub stiff: SoftnessCoefficients,
 }
 
 impl Default for ContactSoftnessCoefficients {
@@ -319,6 +330,7 @@ impl Default for ContactSoftnessCoefficients {
         Self {
             dynamic: SoftnessParameters::new(10.0, 30.0).compute_coefficients(1.0 / 60.0),
             non_dynamic: SoftnessParameters::new(10.0, 60.0).compute_coefficients(1.0 / 60.0),
+            stiff: SoftnessParameters::new(5.0, 60.0).compute_coefficients(1.0 / 60.0),
         }
     }
 }
@@ -346,6 +358,13 @@ fn update_contact_softness(
         coefficients.non_dynamic =
             SoftnessParameters::new(solver_config.contact_damping_ratio, 2.0 * hz)
                 .compute_coefficients(h);
+
+        // place-99: a share of a quarter of the substep rate (see `StiffContacts`).
+        coefficients.stiff = SoftnessParameters::new(
+            solver_config.stiff_contact_damping_ratio,
+            solver_config.stiff_contact_frequency_factor * 0.25 / h,
+        )
+        .compute_coefficients(h);
     }
 }
 
@@ -358,6 +377,7 @@ pub(super) struct BodyQuery {
     pub(super) rb: Read<RigidBody>,
     pub(super) linear_velocity: Read<LinearVelocity>,
     pub(super) inertia: Option<Read<SolverBodyInertia>>,
+    pub(super) stiff: Has<StiffContacts>,
 }
 
 fn prepare_contact_constraints(
