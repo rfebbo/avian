@@ -223,7 +223,7 @@ pub struct SolverConfig {
     /// Consider using a higher damping ratio if contacts seem too soft.
     /// Note that making the value too large can cause instability.
     ///
-    /// Default: `10.0`.
+    /// Default: `2.0` (upstream `10.0`).
     pub contact_damping_ratio: Scalar,
 
     /// Scales the frequency used for contacts. A higher frequency
@@ -236,7 +236,7 @@ pub struct SolverConfig {
     /// This factor scales the resulting frequency, which can lead to unstable behavior
     /// if the factor is too large.
     ///
-    /// Default: `1.5`
+    /// Default: `6.0` (upstream `1.5`)
     pub contact_frequency_factor: Scalar,
 
     /// The maximum speed at which overlapping bodies are pushed apart by the solver.
@@ -291,8 +291,13 @@ pub struct SolverConfig {
 impl Default for SolverConfig {
     fn default() -> Self {
         Self {
-            contact_damping_ratio: 10.0,
-            contact_frequency_factor: 1.5,
+            // place-99: stiffer, less damped contacts (upstream 10.0 / 1.5). The frequency is capped by the *step*'s
+            // Nyquist rate (64 Hz there: 32 Hz x 1.5 = 48 Hz), though contacts are solved every substep; against a light
+            // body held by a joint (a 3 mm plate welded to a post, 1.4 kg) a 12 kg block rested 14 mm into it, its
+            // bottom below the plate's, and slid off a tab it should have stood on. 6.0 is a quarter of the substep
+            // rate at 12 substeps (Box2D's bound); ratio 2.0 is its joints'. Then 1 mm.
+            contact_damping_ratio: 2.0,
+            contact_frequency_factor: 6.0,
             max_overlap_solve_speed: 4.0,
             warm_start_coefficient: 1.0,
             restitution_threshold: 1.0,
